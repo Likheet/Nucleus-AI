@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Nucleus AI — UNSW's intelligent student assistant. Get instant, source-cited answers to your university questions.">
+    <title>Nucleus AI — UNSW Student Assistant</title>
+    <link rel="stylesheet" href="/static/index.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚛️</text></svg>">
+</head>
+<body>
+
+    <!-- Header -->
+    <header class="header" id="app-header">
+        <div class="header-brand">
+            <div class="header-logo">N</div>
+            <div>
+                <div class="header-title">Nucleus AI</div>
+                <div class="header-subtitle">UNSW Student Hub Assistant</div>
+            </div>
+        </div>
+        <div class="header-status" id="header-status">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-text">Connecting...</span>
+        </div>
+    </header>
+
+    <!-- Main App -->
+    <main class="app-container">
+
+        <!-- Chat Messages -->
+        <div class="chat-area" id="chat-area">
+
+            <!-- Welcome Screen (shown initially) -->
+            <div class="welcome-screen" id="welcome-screen">
+                <div class="welcome-icon">⚛️</div>
+                <h1 class="welcome-title">Welcome to Nucleus AI</h1>
+                <p class="welcome-desc">
+                    I'm your UNSW student assistant. Ask me anything about enrolment,
+                    courses, fees, graduation, student services, and more.
+                    Every answer is sourced from official UNSW pages.
+                </p>
+                <div class="quick-questions" id="quick-questions">
+                    <button class="quick-question" data-question="How do I enrol in courses at UNSW?">
+                        <span class="qq-icon">📋</span> How do I enrol in courses?
+                    </button>
+                    <button class="quick-question" data-question="What are the graduation requirements at UNSW?">
+                        <span class="qq-icon">🎓</span> Graduation requirements
+                    </button>
+                    <button class="quick-question" data-question="How do I apply for a program transfer at UNSW?">
+                        <span class="qq-icon">🔄</span> Internal program transfer
+                    </button>
+                    <button class="quick-question" data-question="Where is the Nucleus Student Hub and what are its opening hours?">
+                        <span class="qq-icon">📍</span> Nucleus Hub location & hours
+                    </button>
+                    <button class="quick-question" data-question="How do I get a Confirmation of Enrolment (CoE)?">
+                        <span class="qq-icon">📄</span> Confirmation of Enrolment
+                    </button>
+                    <button class="quick-question" data-question="What student support services does UNSW offer?">
+                        <span class="qq-icon">🤝</span> Student support services
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Input Area -->
+        <div class="input-area">
+            <div class="input-container">
+                <div class="input-wrapper">
+                    <textarea
+                        class="input-field"
+                        id="input-field"
+                        placeholder="Ask anything about UNSW..."
+                        rows="1"
+                        autofocus
+                    ></textarea>
+                    <button class="send-btn" id="send-btn" disabled title="Send message">
+                        ▲
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Disclaimer -->
+        <div class="disclaimer">
+            ⚠️ AI-generated answers from official UNSW sources. Always verify at
+            <a href="https://www.unsw.edu.au/current-students" target="_blank" rel="noopener">unsw.edu.au</a>
+        </div>
+
+    </main>
+
+    <!-- Error Toast -->
+    <div class="error-toast" id="error-toast"></div>
+
+    <script src="/static/index.js"></script>
+</body>
+</html>
