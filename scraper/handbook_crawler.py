@@ -50,6 +50,11 @@ class HandbookSpider(scrapy.Spider):
         self.course_count = 0
         self.program_count = 0
 
+    async def start(self):
+        # Scrapy 2.13+ entry point; start_requests() serves older versions
+        for request in self.start_requests():
+            yield request
+
     def start_requests(self):
         """Generate requests for all subject area browse pages."""
         base = crawler_settings.HANDBOOK_BASE

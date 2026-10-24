@@ -85,6 +85,16 @@ class VectorStore:
 
         print(f"Indexing complete! Total: {self.collection.count()} documents")
 
+    def ids(self):
+        """Return the IDs of every stored chunk."""
+        return set(self.collection.get(include=[])["ids"])
+
+    def delete(self, ids, batch_size=1000):
+        """Delete chunks by ID."""
+        ids = list(ids)
+        for i in range(0, len(ids), batch_size):
+            self.collection.delete(ids=ids[i : i + batch_size])
+
     def search(self, query_text, n_results=5, where=None):
         """
         Search for chunks similar to the query.
