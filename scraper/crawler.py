@@ -46,11 +46,6 @@ class UNSWSpider(scrapy.Spider):
         self.page_count = 0
 
     async def start(self):
-        # Scrapy 2.13+ entry point; start_requests() serves older versions
-        for request in self.start_requests():
-            yield request
-
-    def start_requests(self):
         for url in self.urls:
             yield scrapy.Request(
                 url, callback=self.parse, dont_filter=True,

@@ -136,8 +136,10 @@ python -m scraper.handbook_crawler COMP MATH   # specific subject areas
 python -m scraper.refresh
 ```
 
-It hasn't been re-checked against the current Handbook site, so expect to
-adjust it if the Handbook's pages have changed.
+**Currently it fetches nothing:** its listing start URLs (e.g.
+`/undergraduate/courses/2026`) now return 404, although individual course
+pages still work. Reworking it to read the Handbook's own
+[sitemap index](https://www.handbook.unsw.edu.au/sitemap.xml) would fix it.
 
 ## 🔄 Automatic Weekly Refresh (GitHub Actions)
 
