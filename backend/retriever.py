@@ -94,8 +94,8 @@ class HybridRetriever:
         Returns:
             List of result dicts with keys: text, metadata, score, sources
         """
-        # Fetch more candidates for better fusion
-        k_candidates = min(n_results * 4, 20)
+        # Fetch more candidates for better fusion (and enough distinct pages)
+        k_candidates = n_results * 8
 
         # --- Vector Search ---
         vector_results = self.vector_store.search(
@@ -133,7 +133,16 @@ class HybridRetriever:
             bm25_weight=bm25_weight,
         )
 
-        return fused[:n_results]
+        # At most one chunk per page, so one long page can't fill every slot
+        results, seen_urls = [], set()
+        for result in fused:
+            url = result["metadata"].get("url")
+            if url not in seen_urls:
+                seen_urls.add(url)
+                results.append(result)
+                if len(results) == n_results:
+                    break
+        return results
 
     def _reciprocal_rank_fusion(
         self, vector_results, bm25_results, vector_weight=0.6, bm25_weight=0.4, k=60
