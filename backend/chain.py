@@ -5,12 +5,25 @@ This is the heart of Nucleus AI. It:
 1. Takes a student question
 2. Retrieves relevant chunks from the UNSW knowledge base
 3. Constructs a grounded prompt that forces the LLM to cite sources
-4. Generates a response with inline links and a Sources section
-5. Validates that all URLs in the response are real
+4. Generates a response with inline links to sources and services
+5. Unlinks any URL that isn't in the retrieved context, and lists only the
+   source pages the answer cites
 """
+
+import re
 
 from backend.retriever import HybridRetriever
 from backend.llm import get_llm, BaseLLM
+
+# Markdown links, and any URL, in model output or chunk text
+LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
+URL_RE = re.compile(r"https?://[^\s)\]>\"']+")
+
+# URLs the fallback answers below use
+FALLBACK_URLS = (
+    "https://www.unsw.edu.au/student",
+    "https://www.unsw.edu.au/student/contact-us",
+)
 
 
 # --- System Prompt ---
@@ -25,10 +38,14 @@ in my knowledge base. Please check the [UNSW Current Students page]\
 [Nucleus Student Hub](https://www.unsw.edu.au/student/contact-us) directly."
 3. For EVERY piece of information you provide, add an inline citation linking to the \
 source page using markdown format: [relevant text](URL)
-4. At the end of your response, add a "📚 Sources" section listing all URLs you referenced.
+4. When the context links to the place where the student takes the next step (for example \
+myUNSW, Moodle, an online form or a booking page), include that link so they can go \
+straight there.
 5. Be concise and student-friendly. Use bullet points for lists.
 6. If information might be outdated, mention that the student should verify on the official website.
-7. NEVER fabricate URLs. Only use URLs that appear in the context metadata."""
+7. NEVER fabricate URLs. Only use URLs that appear in the CONTEXT: a source's URL, or a link \
+written in its text as [text](URL).
+8. Don't add a list of sources at the end; the app shows the pages you cite."""
 
 
 def build_context_prompt(query, retrieved_chunks):
@@ -61,10 +78,27 @@ def build_context_prompt(query, retrieved_chunks):
 
 STUDENT QUESTION: {query}
 
-Remember: Only use information from the CONTEXT above. Cite every source with its URL. \
-Add a Sources section at the end."""
+Remember: Only use information from the CONTEXT above. Cite every source with its URL, \
+and link the services or forms the student needs when the CONTEXT gives their links."""
 
     return prompt
+
+
+def _normalize(url):
+    """Compare URLs without fragments, trailing slashes or trailing punctuation."""
+    return url.split("#")[0].rstrip(".,;:").rstrip("/")
+
+
+def keep_known_links(answer, chunks):
+    """Turn links to URLs that aren't in the context back into plain text."""
+    known = {_normalize(url) for url in FALLBACK_URLS}
+    for chunk in chunks:
+        known.add(_normalize(chunk["metadata"].get("url", "")))
+        known.update(_normalize(url) for url in URL_RE.findall(chunk["text"]))
+    return LINK_RE.sub(
+        lambda m: m.group(0) if _normalize(m.group(2)) in known else m.group(1),
+        answer,
+    )
 
 
 def extract_source_urls(chunks):
@@ -137,8 +171,14 @@ class RAGChain:
             max_tokens=1500,
         )
 
-        # Step 4: Extract sources
-        sources = extract_source_urls(chunks)
+        if not (answer or "").strip():
+            raise RuntimeError("The model returned an empty answer")
+
+        # Step 4: Unlink URLs that aren't in the context, and list only the
+        # source pages the answer cites
+        answer = keep_known_links(answer, chunks)
+        cited = {_normalize(url) for url in URL_RE.findall(answer)}
+        sources = [s for s in extract_source_urls(chunks) if _normalize(s["url"]) in cited]
 
         return {
             "answer": answer,

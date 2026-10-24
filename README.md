@@ -20,6 +20,7 @@ pinned: false
 
 - **Zero Hallucination** — Answers grounded in actual UNSW web content (like NotebookLM)
 - **Source Citations** — Every answer links back to the official UNSW page
+- **Links to the Right Place** — Answers link straight to myUNSW, Moodle, forms and portals when UNSW's pages do
 - **Hybrid Search** — Combines semantic vector search with BM25 keyword matching
 - **Always Fresh** — A weekly GitHub Actions job re-fetches only the pages UNSW changed
 - **No Waiting for Crawls** — The server downloads a prebuilt index on startup
@@ -116,6 +117,11 @@ waits too. **Later** runs only fetch what changed: with no sitemap changes a
 run takes under a minute, and a typical week's changes take a few minutes.
 To stop early, press Ctrl-C **once**: pages fetched so far are indexed and
 saved, and the next run fetches the rest.
+
+Pages keep their links as markdown (`[myUNSW](https://my.unsw.edu.au/...)`),
+so answers can link to services. When page extraction changes
+(`EXTRACTOR_VERSION` in `scraper/crawler.py`), the next run re-fetches every
+page once, which is another ~2-hour run.
 
 | Option | What it does |
 |:---|:---|
@@ -326,7 +332,7 @@ June 2026).
 | Method | Path | Description |
 |:---|:---|:---|
 | `POST` | `/api/chat` | Ask a question |
-| `GET` | `/api/health` | Health check |
+| `GET` | `/api/health` | Health check (`detail` says what's wrong when `status` is `degraded`) |
 | `GET` | `/api/stats` | Knowledge base stats |
 | `GET` | `/docs` | Interactive API docs (Swagger) |
 
