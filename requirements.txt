@@ -1,5 +1,6 @@
 # Web Scraping
 scrapy>=2.11
+protego>=0.3
 beautifulsoup4>=4.12
 lxml>=5.0
 
@@ -9,7 +10,9 @@ tiktoken>=0.7
 
 # Embeddings & Vector Store
 sentence-transformers>=3.0
-chromadb>=0.5
+# Pinned: the server loads an index built by the GitHub Actions workflow, and an
+# older chromadb can't always read files written by a newer one.
+chromadb==1.5.9
 
 # LLM
 google-genai>=1.0

@@ -16,6 +16,8 @@ venv/
 data/raw/
 data/chunks/
 data/chroma_db/
+data/manifest.json
+nucleus-index.tar.gz
 
 # IDE
 .vscode/
