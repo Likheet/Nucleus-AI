@@ -128,24 +128,42 @@ What ends up in `data/` (git-ignored):
 |:---|:---|
 | `manifest.json` | URL, `lastmod`, content hash and fetch time of every indexed page |
 | `raw/all_pages.jsonl` | Extracted page content |
+| `raw/handbook_pages.jsonl` | Handbook courses and programs (optional, see below) |
 | `chunks/all_chunks.jsonl` | Chunks (also used for BM25 keyword search) |
 | `chroma_db/` | ChromaDB vector store |
 
 ### UNSW Handbook (optional)
 
 The Handbook crawler is a separate, optional step and is **not** part of the
-weekly build. It writes `data/raw/handbook_pages.jsonl`, which the next
-`python -m scraper.refresh` indexes alongside the sitemap pages:
+weekly build. It reads the Handbook's own
+[sitemap index](https://www.handbook.unsw.edu.au/sitemap.xml), picks the
+course and program pages for `HANDBOOK_YEAR` (default `2026`), and writes
+`data/raw/handbook_pages.jsonl`, which the next `python -m scraper.refresh`
+indexes alongside the sitemap pages:
 
 ```bash
-python -m scraper.handbook_crawler COMP MATH   # specific subject areas
+python -m scraper.handbook_crawler COMP MATH   # only these subject areas' courses
+python -m scraper.handbook_crawler             # every course and program
 python -m scraper.refresh
 ```
 
-**Currently it fetches nothing:** its listing start URLs (e.g.
-`/undergraduate/courses/2026`) now return 404, although individual course
-pages still work. Reworking it to read the Handbook's own
-[sitemap index](https://www.handbook.unsw.edu.au/sitemap.xml) would fix it.
+- **What it extracts:** each page embeds its data as JSON (`__NEXT_DATA__`),
+  so courses get their overview, prerequisites, offering terms, fees, learning
+  outcomes, faculty and school, and programs get their overview, structure
+  and entry requirements. Courses are listed under both undergraduate and
+  postgraduate, so `COMP` is 181 pages for 132 course codes.
+- **Incremental:** each page's sitemap `lastmod` is stored with it, and later
+  runs fetch only new or changed pages (the Handbook publishes daily
+  incremental sitemaps). Ctrl-C **once** keeps what was fetched so far.
+- **Each run matches what you ask for:** pages outside the requested subject
+  areas are dropped from the file (and from the index on the next refresh),
+  so pass every area you want each time. A `MATH` run after a `COMP` run
+  drops COMP.
+- **Speed:** requests are 2 seconds apart (the Handbook's `robots.txt` sets
+  no Crawl-delay), about 2.5 seconds per page in practice. `COMP` takes about
+  7 minutes; everything for a year (about 6,000 courses and 660 programs)
+  takes about 4.5 hours on the first run. A run with nothing new takes a
+  couple of seconds.
 
 ## 🔄 Automatic Weekly Refresh (GitHub Actions)
 

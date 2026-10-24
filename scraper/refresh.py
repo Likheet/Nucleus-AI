@@ -179,7 +179,7 @@ def refresh(limit=None, rechunk=False):
     # Handbook pages (optional, from a separate handbook crawl)
     handbook = {p["url"]: p for p in _read_jsonl(HANDBOOK_FILE)}
     for url, page in handbook.items():
-        record(url, page, "", "handbook")
+        record(url, page, page.get("lastmod", ""), "handbook")
     removed += [
         url for url, entry in known.items()
         if entry["source"] == "handbook" and url not in handbook
