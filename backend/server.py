@@ -55,6 +55,7 @@ class HealthResponse(BaseModel):
     status: str
     llm_provider: str
     knowledge_base_size: int
+    detail: str = ""  # What's wrong, when status is "degraded"
 
 
 class StatsResponse(BaseModel):
@@ -65,27 +66,53 @@ class StatsResponse(BaseModel):
 
 # --- App Lifecycle ---
 
-# Global chain reference (initialized on startup)
+# Set up on startup. If the LLM can't be reached then (missing or bad key,
+# rate limit, network), a later question retries instead of the server
+# staying broken until it restarts.
+retriever = None
 rag_chain = None
+init_error = "Starting up"
+LLM_RETRY_SECONDS = 30
+_last_llm_attempt = 0.0
+
+
+def get_rag_chain():
+    """Return the RAG chain, connecting to the LLM if that hasn't worked yet."""
+    global rag_chain, init_error, _last_llm_attempt
+    if (
+        rag_chain is None
+        and retriever is not None
+        and time.time() - _last_llm_attempt >= LLM_RETRY_SECONDS
+    ):
+        _last_llm_attempt = time.time()
+        try:
+            from backend.chain import RAGChain
+            rag_chain = RAGChain(retriever=retriever)
+            init_error = ""
+            print("✅ RAG chain initialized successfully!")
+        except Exception as e:
+            init_error = str(e).splitlines()[0]
+            print(f"⚠️  Could not connect to the LLM: {e}")
+    return rag_chain
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize the RAG chain when the server starts."""
-    global rag_chain
+    """Load the knowledge base and connect to the LLM when the server starts."""
+    global retriever, init_error
     print("\n🚀 Starting Nucleus AI server...")
     try:
         # Fetch the prebuilt index (INDEX_URL) if none exists locally
         from backend.index_bundle import ensure_index
         ensure_index()
 
-        from backend.chain import RAGChain
-        rag_chain = RAGChain()
-        print("✅ RAG chain initialized successfully!")
+        from backend.retriever import HybridRetriever
+        retriever = HybridRetriever()
     except Exception as e:
-        print(f"⚠️  Could not initialize RAG chain: {e}")
+        init_error = f"Knowledge base not loaded: {e}"
+        print(f"⚠️  {init_error}")
         print("   The server will start, but /api/chat won't work.")
-        print("   Make sure you've run the scraper and indexed the data first.")
+    get_rag_chain()
     yield
     print("\n🛑 Shutting down Nucleus AI server.")
 
@@ -122,26 +149,26 @@ async def chat(request: ChatRequest):
     """
     Answer a student's question using the RAG pipeline.
 
-    The answer is grounded in UNSW's official website content,
-    with inline citations and a sources section.
+    The answer is grounded in UNSW's official website content, with
+    inline citations and links to the services it mentions.
     """
-    if rag_chain is None:
+    chain = get_rag_chain()
+    if chain is None:
+        print(f"⚠️  /api/chat unavailable: {init_error}")
         raise HTTPException(
             status_code=503,
-            detail=(
-                "Knowledge base not initialized. "
-                "Please run the scraper and indexer first."
-            ),
+            detail="The assistant isn't available right now. Please try again in a minute.",
         )
 
     start = time.time()
 
     try:
-        result = rag_chain.ask(request.question)
+        result = chain.ask(request.question)
     except Exception as e:
+        print(f"⚠️  Error generating response: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Error generating response: {str(e)}",
+            status_code=503,
+            detail="I couldn't generate an answer right now. Please try again in a minute.",
         )
 
     elapsed_ms = int((time.time() - start) * 1000)
@@ -158,33 +185,28 @@ async def chat(request: ChatRequest):
 async def health():
     """Health check — verify the server and RAG chain are running."""
     kb_size = 0
-    llm_provider = "not initialized"
-
-    if rag_chain:
+    if retriever:
         try:
-            kb_size = rag_chain.retriever.vector_store.collection.count()
-        except Exception:
-            pass
-        try:
-            llm_provider = type(rag_chain.llm).__name__
+            kb_size = retriever.vector_store.collection.count()
         except Exception:
             pass
 
     return HealthResponse(
         status="ok" if rag_chain else "degraded",
-        llm_provider=llm_provider,
+        llm_provider=type(rag_chain.llm).__name__ if rag_chain else "not initialized",
         knowledge_base_size=kb_size,
+        detail="" if rag_chain else init_error,
     )
 
 
 @app.get("/api/stats", response_model=StatsResponse)
 async def stats():
     """Get knowledge base statistics."""
-    if rag_chain is None:
+    if retriever is None:
         return StatsResponse(total_chunks=0, sample_urls=[])
 
     try:
-        store_stats = rag_chain.retriever.vector_store.get_stats()
+        store_stats = retriever.vector_store.get_stats()
         return StatsResponse(
             total_chunks=store_stats["total_chunks"],
             sample_urls=store_stats["sample_urls"],
