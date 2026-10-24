@@ -41,43 +41,11 @@ SITEMAP_PATHS = [
 ]
 
 # --- Handbook Configuration ---
+# Optional crawl (scraper/handbook_crawler.py), driven by the Handbook's own
+# sitemap index
 HANDBOOK_YEAR = os.getenv("HANDBOOK_YEAR", "2026")
 HANDBOOK_BASE = "https://www.handbook.unsw.edu.au"
-
-# All major UNSW subject area codes for programmatic course crawling
-HANDBOOK_SUBJECT_AREAS = [
-    # Engineering
-    "COMP", "ELEC", "ENGG", "MECH", "CVEN", "MMAN", "MTRN", "SENG",
-    "DESN", "MINE", "PTRL", "SOMA", "FOOD", "CEIC", "MANF", "SOLA",
-    # Science
-    "MATH", "PHYS", "CHEM", "BIOS", "BIOL", "PSYC", "AVIA", "DATA",
-    "GEOS", "MSCI", "OPTM", "PATH", "SCIF", "MATS",
-    # Business
-    "ACCT", "FINS", "MARK", "MGMT", "COMM", "ECON", "INFS", "TABL",
-    "ACTL", "RISK",
-    # Arts & Social Sciences
-    "ARTS", "HIST", "MDIA", "POLS", "SOCI", "LING", "PHIL", "MUSC",
-    "MODL", "EDST", "SRAP",
-    # Law
-    "LAWS", "JURD",
-    # Medicine & Health
-    "MFAC", "MDCN", "PHAR", "PHCM", "PUBH", "HDAT", "HEAL", "NURS",
-    "SWCH",
-    # Architecture & Built Environment
-    "ARCH", "BENV", "IDES", "PLAN", "LAND", "CONS",
-    # General / Cross-faculty
-    "GENL", "GENC",
-]
-
-# Handbook start URLs — browse pages that list all courses/programs
-HANDBOOK_START_URLS = [
-    f"{HANDBOOK_BASE}/",
-    f"{HANDBOOK_BASE}/undergraduate/courses/{HANDBOOK_YEAR}",
-    f"{HANDBOOK_BASE}/postgraduate/courses/{HANDBOOK_YEAR}",
-    f"{HANDBOOK_BASE}/undergraduate/programs/{HANDBOOK_YEAR}",
-    f"{HANDBOOK_BASE}/postgraduate/programs/{HANDBOOK_YEAR}",
-    f"{HANDBOOK_BASE}/research/programs/{HANDBOOK_YEAR}",
-]
+HANDBOOK_SITEMAP_URL = f"{HANDBOOK_BASE}/sitemap.xml"
 
 # --- Output ---
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
@@ -96,13 +64,6 @@ USER_AGENT = (
 HTTPERROR_ALLOWED_CODES = []  # Only process 200 OK responses
 RETRY_TIMES = 2
 RETRY_HTTP_CODES = [500, 502, 503, 504, 408, 429]
-
-# --- Caching (speeds up re-crawls during development) ---
-HTTPCACHE_ENABLED = True
-HTTPCACHE_EXPIRATION_SECS = 86400  # 24 hours
-HTTPCACHE_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), ".scrapy", "httpcache"
-)
 
 # --- Logging ---
 LOG_LEVEL = "INFO"
@@ -136,5 +97,5 @@ IGNORED_URL_PATTERNS = [
 
 # --- Handbook URL Patterns ---
 # Patterns to identify handbook course/program pages for special extraction
-HANDBOOK_COURSE_PATTERN = r"/(?:undergraduate|postgraduate|research)/courses/\d{4}/[A-Z]{4}\d{4}"
-HANDBOOK_PROGRAM_PATTERN = r"/(?:undergraduate|postgraduate|research)/programs/\d{4}/\d{4}"
+HANDBOOK_COURSE_PATTERN = r"/(?:undergraduate|postgraduate|research)/courses/\d{4}/[A-Z]{4}\d{4}$"
+HANDBOOK_PROGRAM_PATTERN = r"/(?:undergraduate|postgraduate|research)/programs/\d{4}/\d{4}$"
