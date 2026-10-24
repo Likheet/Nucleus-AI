@@ -1,174 +1,105 @@
 """
-UNSW Handbook Crawler — Specialized spider for handbook.unsw.edu.au
+UNSW Handbook Crawler — Optional spider for handbook.unsw.edu.au
 
-The handbook is a Next.js SSR application. This means:
-  1. The HTML contains a <script id="__NEXT_DATA__"> tag with the full page data as JSON
-  2. We can extract structured course/program data directly — no browser needed
-  3. Course/program URLs follow predictable patterns
+    python -m scraper.handbook_crawler             # every course and program
+    python -m scraper.handbook_crawler COMP MATH   # only these subject areas' courses
 
-This spider generates URLs programmatically for all subject areas and extracts
-structured fields (course code, name, UOC, prerequisites, description, etc.)
-so they can be chunked as atomic units rather than getting ripped apart.
+The Handbook lists every page in its sitemap index, each with a <lastmod>
+date. This picks the HANDBOOK_YEAR course and program pages, fetches only the
+ones that are new or whose lastmod changed since the last run, and writes
+data/raw/handbook_pages.jsonl, which `python -m scraper.refresh` indexes.
+
+The Handbook is a Next.js SSR application: each page embeds its data as JSON
+in <script id="__NEXT_DATA__">, so structured fields (course code, UOC,
+prerequisites, description, etc.) are read from there, no browser needed.
+They are kept together so courses can be chunked as atomic units.
 """
 
 import json
 import re
 from datetime import datetime, timezone
-from pathlib import Path
 
 import scrapy
 from bs4 import BeautifulSoup
 
 from scraper import settings as crawler_settings
 
+# Elements whose text starts on a new line
+BLOCK_TAGS = ["p", "li", "div", "tr", "h1", "h2", "h3", "h4", "h5", "h6"]
+
+FEE_LABELS = {
+    "fees_commonwealth": "Commonwealth Supported Students",
+    "fees_domestic": "Domestic Students",
+    "fees_international": "International Students",
+}
+
 
 class HandbookSpider(scrapy.Spider):
-    """Spider that crawls UNSW Handbook course and program pages."""
+    """Spider that fetches UNSW Handbook course and program pages."""
 
     name = "handbook_spider"
     allowed_domains = ["www.handbook.unsw.edu.au"]
     custom_settings = {
-        "DOWNLOAD_DELAY": 2.0,  # Extra polite — handbook is a smaller site
+        "DOWNLOAD_DELAY": 2.0,  # Extra polite — robots.txt sets no Crawl-delay
         "CONCURRENT_REQUESTS": 2,
         "CONCURRENT_REQUESTS_PER_DOMAIN": 2,
         "ROBOTSTXT_OBEY": True,
         "USER_AGENT": crawler_settings.USER_AGENT,
-        "HTTPCACHE_ENABLED": crawler_settings.HTTPCACHE_ENABLED,
-        "HTTPCACHE_EXPIRATION_SECS": crawler_settings.HTTPCACHE_EXPIRATION_SECS,
-        "HTTPCACHE_DIR": crawler_settings.HTTPCACHE_DIR,
+        # Always fetch fresh copies: lastmod already tells us what changed.
+        "HTTPCACHE_ENABLED": False,
         "LOG_LEVEL": crawler_settings.LOG_LEVEL,
-        "ITEM_PIPELINES": {
-            "scraper.handbook_crawler.HandbookJsonPipeline": 300,
-        },
     }
 
-    def __init__(self, subject_areas=None, year=None, *args, **kwargs):
+    def __init__(self, pages=None, *args, **kwargs):
+        """pages: {url: lastmod} to fetch, from the Handbook sitemap."""
         super().__init__(*args, **kwargs)
-        self.year = year or crawler_settings.HANDBOOK_YEAR
-        self.subject_areas = subject_areas or crawler_settings.HANDBOOK_SUBJECT_AREAS
-        self.visited = set()
+        self.pages = dict(pages or {})
         self.course_count = 0
         self.program_count = 0
 
-    def start_requests(self):
-        """Generate requests for all subject area browse pages."""
-        base = crawler_settings.HANDBOOK_BASE
-        year = self.year
-
-        # Start with browse/listing pages to discover courses and programs
-        for url in crawler_settings.HANDBOOK_START_URLS:
-            yield scrapy.Request(url, callback=self.parse_listing)
-
-        # Also generate direct course URLs for every subject area
-        # Each subject area page lists courses for that area
-        for area in self.subject_areas:
-            # Undergraduate courses
-            url = f"{base}/undergraduate/courses/{year}?query={area}"
-            yield scrapy.Request(url, callback=self.parse_listing, meta={"area": area})
-            # Postgraduate courses
-            url = f"{base}/postgraduate/courses/{year}?query={area}"
-            yield scrapy.Request(url, callback=self.parse_listing, meta={"area": area})
-
-    def parse_listing(self, response):
-        """Parse a listing/browse page and follow links to individual courses."""
-        # Follow links to individual course and program pages
-        for href in response.css("a::attr(href)").getall():
-            if not href:
-                continue
-
-            # Match course URLs: /undergraduate/courses/2026/COMP1511
-            if re.search(crawler_settings.HANDBOOK_COURSE_PATTERN, href):
-                full_url = response.urljoin(href)
-                if full_url not in self.visited:
-                    self.visited.add(full_url)
-                    yield scrapy.Request(full_url, callback=self.parse_course)
-
-            # Match program URLs: /undergraduate/programs/2026/3778
-            elif re.search(crawler_settings.HANDBOOK_PROGRAM_PATTERN, href):
-                full_url = response.urljoin(href)
-                if full_url not in self.visited:
-                    self.visited.add(full_url)
-                    yield scrapy.Request(full_url, callback=self.parse_program)
+    async def start(self):
+        for url, lastmod in self.pages.items():
+            if re.search(crawler_settings.HANDBOOK_COURSE_PATTERN, url):
+                callback = self.parse_course
+            else:
+                callback = self.parse_program
+            yield scrapy.Request(
+                url, callback=callback, dont_filter=True,
+                meta={"sitemap_url": url, "lastmod": lastmod},
+            )
 
     def parse_course(self, response):
         """Extract structured data from a course page."""
-        data = self._extract_next_data(response)
-        soup = BeautifulSoup(response.text, "lxml")
+        data = self._page_content(response)
+        # Key pages by their sitemap URL (stable across redirects)
+        url = response.meta["sitemap_url"]
+        course_code = data.get("code", "")
+        title = data.get("title", "")
+        level = self._level(url)
 
-        url = response.url
+        outcomes = sorted(
+            data.get("unit_learning_outcomes") or [],
+            key=lambda lo: str(lo.get("order", "")).zfill(3),
+        )
+        offering = data.get("offering_detail") or {}
+        fees = offering.get("fees") or {}
 
-        # Extract course code from URL (e.g., COMP1511)
-        code_match = re.search(r"/([A-Z]{4}\d{4})$", url)
-        course_code = code_match.group(1) if code_match else ""
-
-        # Extract the level from URL
-        level = "undergraduate"
-        if "/postgraduate/" in url:
-            level = "postgraduate"
-        elif "/research/" in url:
-            level = "research"
-
-        # Try to get title from the page
-        title = self._get_text(soup, "h2[data-testid='ai-header']") or ""
-        if not title:
-            title_tag = soup.find("title")
-            if title_tag:
-                title = title_tag.get_text(strip=True)
-                title = re.sub(r"^Handbook\s*[-–—]\s*", "", title)
-
-        # Extract all text content sections
-        content_parts = []
-
-        # Overview / Description
-        overview = self._extract_section_text(soup, "Overview")
-        if overview:
-            content_parts.append(f"Overview: {overview}")
-
-        # Conditions for Enrolment (prerequisites)
-        conditions = self._extract_section_text(soup, "Conditions for Enrolment")
-        if conditions:
-            content_parts.append(f"Conditions for Enrolment / Prerequisites: {conditions}")
-
-        # Course Outline
-        outline = self._extract_section_text(soup, "Course Outline")
-        if outline:
-            content_parts.append(f"Course Outline: {outline}")
-
-        # Learning Outcomes
-        outcomes = self._extract_section_text(soup, "Learning Outcomes")
-        if outcomes:
-            content_parts.append(f"Learning Outcomes: {outcomes}")
-
-        # Fees
-        fees = self._extract_section_text(soup, "Fees")
-        if fees:
-            content_parts.append(f"Fees: {fees}")
-
-        # If we couldn't find structured sections, grab all body text
-        if not content_parts:
-            main_el = soup.find("main") or soup.find("body")
-            if main_el:
-                # Remove nav, header, footer, scripts
-                for tag in main_el.find_all(["script", "style", "nav", "footer", "header"]):
-                    tag.decompose()
-                body_text = self._clean_text(main_el.get_text(separator="\n"))
-                if body_text:
-                    content_parts.append(body_text)
-
-        # UOC (Units of Credit)
-        uoc = ""
-        uoc_match = re.search(r"(\d+)\s*Units?\s*of\s*Credit", response.text)
-        if uoc_match:
-            uoc = uoc_match.group(1)
-
-        # Faculty/School
-        faculty = self._extract_attribute(soup, "Faculty")
-        school = self._extract_attribute(soup, "School")
-
-        # Offering Terms
-        offering = self._extract_attribute(soup, "Offering Terms") or \
-                   self._extract_attribute(soup, "Term")
-
+        sections = {
+            "Overview": self._html_to_text(data.get("description")),
+            "Conditions for Enrolment / Prerequisites": "\n".join(
+                self._html_to_text(rule.get("description"))
+                for rule in data.get("enrolment_rules") or []
+            ),
+            "Course Outline": data.get("course_outline_url", ""),
+            "Learning Outcomes": "\n".join(
+                self._html_to_text(lo.get("description")) for lo in outcomes
+            ),
+            "Fees": "\n".join(
+                f"{label}: ${fees[key]}"
+                for key, label in FEE_LABELS.items() if fees.get(key)
+            ),
+        }
+        content_parts = [f"{heading}: {text}" for heading, text in sections.items() if text.strip()]
         full_content = "\n\n".join(content_parts)
 
         if full_content.strip():
@@ -184,79 +115,43 @@ class HandbookSpider(scrapy.Spider):
                 "course_code": course_code,
                 "title": f"{course_code} — {title}" if course_code else title,
                 "level": level,
-                "uoc": uoc,
-                "faculty": faculty,
-                "school": school,
-                "offering_terms": offering,
+                "uoc": data.get("credit_points", ""),
+                "faculty": self._value(data, "parent_academic_org"),
+                "school": self._value(data, "academic_org"),
+                "offering_terms": offering.get("offering_terms", ""),
                 "content": full_content,
                 "sections": [
-                    {"heading": part.split(":")[0] if ":" in part else "",
-                     "content": part}
+                    {"heading": part.split(":")[0], "content": part}
                     for part in content_parts
                 ],
                 "breadcrumbs": ["UNSW Handbook", level.title(), "Courses", course_code],
+                "lastmod": response.meta["lastmod"],
                 "last_crawled": datetime.now(timezone.utc).isoformat(),
-                "meta_description": f"{course_code} {title} - {uoc} UOC - UNSW {level.title()}",
+                "meta_description": (
+                    f"{course_code} {title} - {data.get('credit_points', '')} UOC "
+                    f"- UNSW {level.title()}"
+                ),
             }
 
     def parse_program(self, response):
         """Extract structured data from a program page."""
-        soup = BeautifulSoup(response.text, "lxml")
-        url = response.url
+        data = self._page_content(response)
+        url = response.meta["sitemap_url"]
+        program_code = data.get("code", "")
+        title = data.get("title", "")
+        level = self._level(url)
 
-        # Extract program code from URL
-        code_match = re.search(r"/(\d{4})$", url)
-        program_code = code_match.group(1) if code_match else ""
-
-        level = "undergraduate"
-        if "/postgraduate/" in url:
-            level = "postgraduate"
-        elif "/research/" in url:
-            level = "research"
-
-        title = self._get_text(soup, "h2[data-testid='ai-header']") or ""
-        if not title:
-            title_tag = soup.find("title")
-            if title_tag:
-                title = title_tag.get_text(strip=True)
-                title = re.sub(r"^Handbook\s*[-–—]\s*", "", title)
-
-        content_parts = []
-
-        # Overview
-        overview = self._extract_section_text(soup, "Overview")
-        if overview:
-            content_parts.append(f"Overview: {overview}")
-
-        # Program Structure
-        structure = self._extract_section_text(soup, "Program Structure")
-        if structure:
-            content_parts.append(f"Program Structure: {structure}")
-
-        # Admission Requirements
-        admission = self._extract_section_text(soup, "Admission Requirements")
-        if admission:
-            content_parts.append(f"Admission Requirements: {admission}")
-
-        # Fees
-        fees = self._extract_section_text(soup, "Fees")
-        if fees:
-            content_parts.append(f"Fees: {fees}")
-
-        # Fallback
-        if not content_parts:
-            main_el = soup.find("main") or soup.find("body")
-            if main_el:
-                for tag in main_el.find_all(["script", "style", "nav", "footer", "header"]):
-                    tag.decompose()
-                body_text = self._clean_text(main_el.get_text(separator="\n"))
-                if body_text:
-                    content_parts.append(body_text)
-
-        # Duration
-        duration = self._extract_attribute(soup, "Duration")
-        faculty = self._extract_attribute(soup, "Faculty")
-
+        sections = {
+            "Overview": self._html_to_text(data.get("description")),
+            "Program Structure": self._html_to_text(data.get("structure_summary")),
+            "Admission Requirements": "\n".join(
+                self._html_to_text(req.get("description"))
+                for group in data.get("entry_requirements_v2") or []
+                for req in group.get("requirements") or []
+            ),
+            "Fees": self._html_to_text(data.get("fees_description")),
+        }
+        content_parts = [f"{heading}: {text}" for heading, text in sections.items() if text.strip()]
         full_content = "\n\n".join(content_parts)
 
         if full_content.strip():
@@ -272,15 +167,15 @@ class HandbookSpider(scrapy.Spider):
                 "program_code": program_code,
                 "title": f"Program {program_code} — {title}" if program_code else title,
                 "level": level,
-                "faculty": faculty,
-                "duration": duration,
+                "faculty": self._value(data, "parent_academic_org"),
+                "duration": data.get("full_time_duration", ""),
                 "content": full_content,
                 "sections": [
-                    {"heading": part.split(":")[0] if ":" in part else "",
-                     "content": part}
+                    {"heading": part.split(":")[0], "content": part}
                     for part in content_parts
                 ],
                 "breadcrumbs": ["UNSW Handbook", level.title(), "Programs", program_code],
+                "lastmod": response.meta["lastmod"],
                 "last_crawled": datetime.now(timezone.utc).isoformat(),
                 "meta_description": f"Program {program_code} {title} - UNSW {level.title()}",
             }
@@ -301,111 +196,118 @@ class HandbookSpider(scrapy.Spider):
             pass
         return {}
 
-    def _extract_section_text(self, soup, section_name):
-        """Extract text content from a named section/accordion."""
-        # Try finding by heading text
-        for tag in soup.find_all(["h2", "h3", "h4", "button", "div"]):
-            text = tag.get_text(strip=True)
-            if section_name.lower() in text.lower():
-                # Get the next sibling container or parent's content
-                parent = tag.find_parent(
-                    class_=re.compile(r"Accordion|Card|Section|ReadMore", re.I)
-                )
-                if parent:
-                    content = self._clean_text(parent.get_text(separator="\n"))
-                    # Remove the heading itself from the content
-                    content = content.replace(text, "", 1).strip()
-                    if content and len(content) > 20:
-                        return content
+    def _page_content(self, response):
+        """The course/program fields from the page's __NEXT_DATA__."""
+        data = self._extract_next_data(response)
+        content = data.get("props", {}).get("pageProps", {}).get("pageContent")
+        if not content:
+            self.logger.warning(f"No __NEXT_DATA__ page content: {response.url}")
+        return content or {}
 
-        # Try by data-testid or aria-label
-        el = soup.find(attrs={"data-testid": re.compile(section_name, re.I)})
-        if el:
-            return self._clean_text(el.get_text(separator="\n"))
+    def _level(self, url):
+        if "/postgraduate/" in url:
+            return "postgraduate"
+        if "/research/" in url:
+            return "research"
+        return "undergraduate"
 
-        return ""
+    def _value(self, data, field):
+        """Read a {"value": ...} reference field, e.g. the owning school."""
+        return (data.get(field) or {}).get("value") or ""
 
-    def _extract_attribute(self, soup, attribute_name):
-        """Extract a key-value attribute (e.g., 'Faculty: Engineering')."""
-        for tag in soup.find_all(string=re.compile(attribute_name, re.I)):
-            parent = tag.find_parent()
-            if parent:
-                # The value is usually in a sibling or nearby element
-                next_el = parent.find_next_sibling()
-                if next_el:
-                    val = next_el.get_text(strip=True)
-                    if val and len(val) < 200:
-                        return val
-        return ""
-
-    def _get_text(self, soup, selector):
-        """Get text from a CSS selector, or empty string."""
-        el = soup.select_one(selector)
-        return el.get_text(strip=True) if el else ""
-
-    def _clean_text(self, text):
-        """Normalize whitespace and remove noise."""
-        if not text:
+    def _html_to_text(self, html):
+        """Turn a Handbook HTML snippet into plain text, one block per line."""
+        if not html:
             return ""
-        lines = text.split("\n")
-        cleaned = []
-        for line in lines:
-            line = re.sub(r"\s+", " ", line).strip()
-            if line and len(line) > 3:
-                cleaned.append(line)
-        deduped = []
-        for line in cleaned:
-            if not deduped or line != deduped[-1]:
-                deduped.append(line)
-        return "\n".join(deduped)
+        soup = BeautifulSoup(html, "lxml")
+        for br in soup.find_all("br"):
+            br.replace_with("\n")
+        for li in soup.find_all("li"):
+            li.insert(0, "- ")
+        for block in soup.find_all(BLOCK_TAGS):
+            block.append("\n")
+        lines = (re.sub(r"\s+", " ", line).strip() for line in soup.get_text().split("\n"))
+        return "\n".join(line for line in lines if line)
 
 
-class HandbookJsonPipeline:
-    """Write handbook items to a separate JSONL file."""
-
-    def open_spider(self, spider):
-        self.output_dir = Path(crawler_settings.RAW_DATA_DIR)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.items_file = self.output_dir / "handbook_pages.jsonl"
-        self.file = open(self.items_file, "w", encoding="utf-8")
-        self.count = 0
-
-    def close_spider(self, spider):
-        self.file.close()
-        spider.logger.info(
-            f"Handbook crawl complete! {self.count} items saved to {self.items_file}"
-        )
-
-    def process_item(self, item, spider):
-        line = json.dumps(dict(item), ensure_ascii=False) + "\n"
-        self.file.write(line)
-        self.count += 1
-        return item
+def select_pages(entries, year, subject_areas=None):
+    """
+    Keep the year's course and program pages from the sitemap entries. With
+    subject_areas, keep only those areas' courses (programs have numeric
+    codes, so they have no subject area).
+    """
+    areas = {area.upper() for area in subject_areas or ()}
+    selected = {}
+    for url, lastmod in entries.items():
+        if f"/{year}/" not in url:
+            continue
+        if re.search(crawler_settings.HANDBOOK_COURSE_PATTERN, url):
+            if areas and url.rsplit("/", 1)[1][:4] not in areas:
+                continue
+        elif areas or not re.search(crawler_settings.HANDBOOK_PROGRAM_PATTERN, url):
+            continue
+        selected[url] = lastmod
+    return selected
 
 
 def run_handbook_crawler(subject_areas=None, year=None):
-    """Run the Handbook spider from the command line."""
+    """
+    Bring data/raw/handbook_pages.jsonl in line with the Handbook sitemap:
+    fetch new or changed pages, keep unchanged ones, drop the rest.
+    """
+    from scrapy import signals
     from scrapy.crawler import CrawlerProcess
 
-    Path(crawler_settings.RAW_DATA_DIR).mkdir(parents=True, exist_ok=True)
+    from scraper.refresh import HANDBOOK_FILE, _read_jsonl, _write_jsonl
+    from scraper.sitemap import fetch_sitemap
 
-    process = CrawlerProcess(
-        settings={
-            "BOT_NAME": crawler_settings.BOT_NAME,
-            "ROBOTSTXT_OBEY": True,
-            "LOG_LEVEL": crawler_settings.LOG_LEVEL,
-            "LOG_FORMAT": crawler_settings.LOG_FORMAT,
-        }
+    year = year or crawler_settings.HANDBOOK_YEAR
+    scope = f"{', '.join(subject_areas)} courses" if subject_areas else "courses and programs"
+
+    print(f"Reading {crawler_settings.HANDBOOK_SITEMAP_URL}")
+    wanted = select_pages(
+        fetch_sitemap(crawler_settings.HANDBOOK_SITEMAP_URL), year, subject_areas
+    )
+    previous = _read_jsonl(HANDBOOK_FILE)
+    stored = {p["url"]: p for p in previous if p["url"] in wanted}
+    to_fetch = {
+        url: lastmod for url, lastmod in wanted.items()
+        if stored.get(url, {}).get("lastmod") != lastmod
+    }
+    print(
+        f"{len(wanted)} {year} {scope}: {len(wanted) - len(to_fetch)} unchanged, "
+        f"{len(to_fetch)} new or changed, {len(previous) - len(stored)} removed"
     )
 
-    kwargs = {}
-    if subject_areas:
-        kwargs["subject_areas"] = subject_areas
-    if year:
-        kwargs["year"] = year
+    fetched = {}
+    if to_fetch:
+        delay = HandbookSpider.custom_settings["DOWNLOAD_DELAY"]
+        print(
+            f"Fetching {len(to_fetch)} pages, {delay:g}s apart "
+            f"(about {len(to_fetch) * delay / 60:.0f} min)"
+        )
 
-    process.crawl(HandbookSpider, **kwargs)
-    process.start()
+        def collect(item, response, spider):
+            fetched[item["url"]] = dict(item)
+
+        process = CrawlerProcess(
+            settings={
+                "BOT_NAME": crawler_settings.BOT_NAME,
+                "ROBOTSTXT_OBEY": True,
+                "LOG_LEVEL": crawler_settings.LOG_LEVEL,
+                "LOG_FORMAT": crawler_settings.LOG_FORMAT,
+            }
+        )
+        crawler = process.create_crawler(HandbookSpider)
+        crawler.signals.connect(collect, signal=signals.item_scraped)
+        process.crawl(crawler, pages=to_fetch)
+        process.start()
+        print(f"Fetched {len(fetched)}/{len(to_fetch)} (failures are retried next run)")
+
+    # Pages that failed keep their old copy and lastmod, so they're retried
+    stored.update(fetched)
+    _write_jsonl(HANDBOOK_FILE, [stored[url] for url in sorted(stored)])
+    print(f"Saved {len(stored)} pages to {HANDBOOK_FILE}")
 
 
 if __name__ == "__main__":

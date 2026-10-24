@@ -197,7 +197,8 @@ def chunk_page(page_data):
                 if len(chunk_text.strip()) < MIN_CHUNK_LENGTH:
                     continue
 
-                chunk_id = generate_chunk_id(url, f"{heading}_{i}")
+                # Running index: headings can repeat (or be empty) on a page
+                chunk_id = generate_chunk_id(url, len(chunks))
                 chunks.append({
                     "id": chunk_id,
                     "text": chunk_text.strip(),

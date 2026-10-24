@@ -1,0 +1,10 @@
+.git
+.github
+.env
+venv
+.venv
+data
+.scrapy
+__pycache__
+*.py[cod]
+nucleus-index.tar.gz

@@ -1,0 +1,75 @@
+name: Build index
+
+# Weekly: fetch the UNSW /student pages that changed since the last build,
+# re-embed them, and publish the index as the `index-latest` release asset
+# that the server downloads at startup. Embeddings run locally on the runner,
+# so this needs no Gemini (or any other) API key.
+
+on:
+  schedule:
+    - cron: "0 17 * * 0" # Sundays 17:00 UTC (early Monday in Sydney)
+  workflow_dispatch:
+
+permissions:
+  contents: write # create/update the index-latest release
+
+concurrency:
+  group: build-index
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # The first, full build fetches ~500 pages at UNSW's 10s Crawl-delay
+    # (~2 hours with redirects). Weekly updates usually take a few minutes.
+    timeout-minutes: 330
+    env:
+      INDEX_URL: https://github.com/${{ github.repository }}/releases/download/index-latest/nucleus-index.tar.gz
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ runner.os }}-all-MiniLM-L6-v2-onnx
+
+      - name: Restore the previous index
+        run: python -m backend.index_bundle download || echo "No previous index; doing a full build"
+
+      - name: Fetch changed pages and update the index
+        run: python -m scraper.refresh
+
+      - name: Package the index
+        run: python -m backend.index_bundle pack nucleus-index.tar.gz
+
+      - name: Publish to the index-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes=$(jq -r '"Prebuilt Nucleus AI index: \(.page_count) pages, \(.chunk_count) chunks. Updated \(.updated_at)."' data/manifest.json)
+          if gh release view index-latest > /dev/null 2>&1; then
+            gh release upload index-latest nucleus-index.tar.gz --clobber
+            gh release edit index-latest --notes "$notes"
+          else
+            gh release create index-latest nucleus-index.tar.gz \
+              --title "Prebuilt index" --notes "$notes" --prerelease
+          fi
+
+      # Optional: restart a Hugging Face Space so it downloads the new index.
+      # Set the repository variable HF_SPACE_ID (e.g. "user/nucleus-ai") and
+      # the secret HF_TOKEN (a write token) to enable.
+      - name: Restart the Hugging Face Space
+        if: vars.HF_SPACE_ID != ''
+        env:
+          HF_SPACE_ID: ${{ vars.HF_SPACE_ID }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python -c "import os; from huggingface_hub import HfApi; HfApi(token=os.environ['HF_TOKEN']).restart_space(os.environ['HF_SPACE_ID'])"

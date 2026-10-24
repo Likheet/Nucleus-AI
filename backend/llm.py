@@ -2,7 +2,7 @@
 LLM Interface — Unified interface for Gemini Flash API and Ollama (local).
 
 Supports two providers:
-  - "gemini": Google Gemini Flash API (free tier: ~1500 req/day)
+  - "gemini": Google Gemini Flash-Lite API (free tier)
   - "ollama": Local Ollama with any model (completely free, needs local setup)
 
 Both share the same interface: llm.generate(prompt) → response text
@@ -46,7 +46,7 @@ class GeminiLLM(BaseLLM):
 
     def __init__(self, api_key=None, model=None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY", "")
-        self.model_name = model or os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+        self.model_name = model or os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
         self._client = None
 
     def _get_client(self):

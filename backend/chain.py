@@ -21,8 +21,8 @@ CRITICAL RULES:
 1. ONLY use information from the CONTEXT provided below. Do NOT use any other knowledge.
 2. If the answer is NOT in the context, say: "I don't have specific information about that \
 in my knowledge base. Please check the [UNSW Current Students page]\
-(https://www.unsw.edu.au/current-students) or contact the \
-[Nucleus Student Hub](https://www.unsw.edu.au/current-students/student-hub) directly."
+(https://www.unsw.edu.au/student) or contact the \
+[Nucleus Student Hub](https://www.unsw.edu.au/student/contact-us) directly."
 3. For EVERY piece of information you provide, add an inline citation linking to the \
 source page using markdown format: [relevant text](URL)
 4. At the end of your response, add a "📚 Sources" section listing all URLs you referenced.
@@ -117,9 +117,9 @@ class RAGChain:
                 "answer": (
                     "I couldn't find any relevant information in my knowledge base. "
                     "Please visit the [UNSW Current Students page]"
-                    "(https://www.unsw.edu.au/current-students) or contact the "
+                    "(https://www.unsw.edu.au/student) or contact the "
                     "[Nucleus Student Hub]"
-                    "(https://www.unsw.edu.au/current-students/student-hub) "
+                    "(https://www.unsw.edu.au/student/contact-us) "
                     "for assistance."
                 ),
                 "sources": [],

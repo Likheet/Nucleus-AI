@@ -75,6 +75,10 @@ async def lifespan(app: FastAPI):
     global rag_chain
     print("\n🚀 Starting Nucleus AI server...")
     try:
+        # Fetch the prebuilt index (INDEX_URL) if none exists locally
+        from backend.index_bundle import ensure_index
+        ensure_index()
+
         from backend.chain import RAGChain
         rag_chain = RAGChain()
         print("✅ RAG chain initialized successfully!")

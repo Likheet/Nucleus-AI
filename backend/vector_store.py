@@ -70,7 +70,7 @@ class VectorStore:
             metadatas = [c["metadata"] for c in batch]
 
             # Generate embeddings
-            embeddings = embed_texts(texts, show_progress=False)
+            embeddings = embed_texts(texts)
 
             # Upsert into ChromaDB (handles duplicates)
             self.collection.upsert(
@@ -84,6 +84,16 @@ class VectorStore:
             print(f"  Indexed {progress}/{len(chunks)} chunks")
 
         print(f"Indexing complete! Total: {self.collection.count()} documents")
+
+    def ids(self):
+        """Return the IDs of every stored chunk."""
+        return set(self.collection.get(include=[])["ids"])
+
+    def delete(self, ids, batch_size=1000):
+        """Delete chunks by ID."""
+        ids = list(ids)
+        for i in range(0, len(ids), batch_size):
+            self.collection.delete(ids=ids[i : i + batch_size])
 
     def search(self, query_text, n_results=5, where=None):
         """
@@ -145,15 +155,6 @@ class VectorStore:
             "sample_urls": list(urls),
             "persist_dir": self.persist_dir,
         }
-
-    def clear(self):
-        """Delete all documents from the collection."""
-        self.client.delete_collection(COLLECTION_NAME)
-        self.collection = self.client.get_or_create_collection(
-            name=COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"},
-        )
-        print("Collection cleared.")
 
 
 def index_from_file(chunks_file=None):
