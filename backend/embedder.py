@@ -46,8 +46,15 @@ def get_embedding_model():
     tokenizer = Tokenizer.from_file(hf_hub_download(MODEL_REPO, "tokenizer.json"))
     tokenizer.enable_truncation(max_length=MAX_TOKENS)
     tokenizer.enable_padding()
+    # One thread: on a small CPU share (Render Free has 0.1 CPU) the default
+    # thread pool made each query take several seconds. A full re-embed is
+    # about 3x slower this way, which is fine for the weekly build.
+    options = onnxruntime.SessionOptions()
+    options.intra_op_num_threads = 1
+    options.inter_op_num_threads = 1
     session = onnxruntime.InferenceSession(
         hf_hub_download(MODEL_REPO, MODEL_FILE),
+        options,
         providers=["CPUExecutionProvider"],
     )
     return tokenizer, session
