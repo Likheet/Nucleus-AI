@@ -13,7 +13,7 @@ One command does everything:
      left the sitemap.
 
 The first run fetches every page (about 500 pages at UNSW's 10s Crawl-delay,
-so roughly 85 minutes). Later runs only fetch what changed. The scheduled
+plus redirect hops, so roughly 2 hours). Later runs only fetch what changed. The scheduled
 GitHub Actions workflow runs this weekly and publishes the result, so the
 server can download a prebuilt index instead of crawling.
 """

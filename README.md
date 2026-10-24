@@ -106,10 +106,12 @@ One command does everything:
 4. Re-chunks and re-embeds only pages whose content actually changed, and
    drops pages that left the sitemap
 
-The **first** run fetches every page, which takes about 85 minutes because of
-the 10s crawl delay. **Later** runs only fetch what changed: with no sitemap
-changes a run takes under a minute, and a typical week's changes take a few
-minutes. You can stop a run at any time; the next run picks up where it left off.
+The **first** run fetches every page, which takes about 2 hours: besides the
+10s crawl delay, many sitemap URLs redirect two or three times, and each hop
+waits too. **Later** runs only fetch what changed: with no sitemap changes a
+run takes under a minute, and a typical week's changes take a few minutes.
+To stop early, press Ctrl-C **once**: pages fetched so far are indexed and
+saved, and the next run fetches the rest.
 
 | Option | What it does |
 |:---|:---|
@@ -155,7 +157,7 @@ To turn it on:
 1. Merge this workflow into `main` and push. Scheduled workflows only run
    from the default branch.
 2. Go to **Actions → Build index → Run workflow** to run it once by hand.
-   The first run does the full ~85-minute crawl and creates the
+   The first run does the full ~2-hour crawl and creates the
    `index-latest` release. Runs after that are incremental.
 3. Optional: to restart a Hugging Face Space after each build so it picks up
    the new index, add a repository **variable** `HF_SPACE_ID` (e.g.

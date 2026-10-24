@@ -21,8 +21,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     # The first, full build fetches ~500 pages at UNSW's 10s Crawl-delay
-    # (~85 min). Weekly updates usually take a few minutes.
-    timeout-minutes: 180
+    # (~2 hours with redirects). Weekly updates usually take a few minutes.
+    timeout-minutes: 330
     env:
       INDEX_URL: https://github.com/${{ github.repository }}/releases/download/index-latest/nucleus-index.tar.gz
     steps:
