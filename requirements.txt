@@ -8,8 +8,11 @@ lxml>=5.0
 langchain-text-splitters>=0.2
 tiktoken>=0.7
 
-# Embeddings & Vector Store
-sentence-transformers>=3.0
+# Embeddings & Vector Store (all-MiniLM-L6-v2 on ONNX Runtime, no PyTorch)
+onnxruntime>=1.17
+tokenizers>=0.15
+huggingface-hub>=0.20
+numpy>=1.26
 # Pinned: the server loads an index built by the GitHub Actions workflow, and an
 # older chromadb can't always read files written by a newer one.
 chromadb==1.5.9

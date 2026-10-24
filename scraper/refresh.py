@@ -20,6 +20,7 @@ server can download a prebuilt index instead of crawling.
 
 import hashlib
 import json
+import shutil
 import sys
 import time
 from datetime import datetime, timezone
@@ -100,7 +101,7 @@ def refresh(limit=None, rechunk=False):
         rechunk: Re-chunk every stored page, e.g. after changing the chunker.
     """
     from backend.embedder import DEFAULT_MODEL
-    from backend.vector_store import VectorStore
+    from backend.vector_store import CHROMA_PERSIST_DIR, VectorStore
     from scraper.chunker import chunk_page
     from scraper.sitemap import crawl_delay, fetch_sitemap, select_pages
 
@@ -201,10 +202,12 @@ def refresh(limit=None, rechunk=False):
     # Step 4: Embed — reconcile the vector store with the chunk list by ID
     print("\n🧮 Step 4/4: Updating the vector store...")
     all_chunks = [c for url in sorted(chunks_by_url) for c in chunks_by_url[url]]
-    store = VectorStore()
     if manifest.get("embedding_model", DEFAULT_MODEL) != DEFAULT_MODEL:
         print(f"   Embedding model changed to {DEFAULT_MODEL}; re-embedding everything")
-        store.clear()
+        # Start from an empty store. Chroma's delete_collection leaves the old
+        # vectors on disk, where they'd be packed into every index archive.
+        shutil.rmtree(CHROMA_PERSIST_DIR, ignore_errors=True)
+    store = VectorStore()
     stored_ids = store.ids()
     stale = stored_ids - {c["id"] for c in all_chunks}
     if stale:

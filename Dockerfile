@@ -9,17 +9,15 @@ ENV HOME=/home/user \
     PORT=7860
 WORKDIR $HOME/app
 
-# Copy requirements first (Docker caching). CPU-only torch keeps the image
-# a couple of GB smaller than the default CUDA build.
+# Copy requirements first (Docker caching)
 COPY --chown=user requirements.txt .
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir -r requirements.txt
-
-# Bake the embedding model into the image so startup doesn't download it
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application
 COPY --chown=user . .
+
+# Bake the embedding model into the image so startup doesn't download it
+RUN python -m backend.embedder
 
 # The prebuilt index (INDEX_URL) is downloaded into ./data on startup.
 # Spaces expects port 7860; Render sets PORT itself.

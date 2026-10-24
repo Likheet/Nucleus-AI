@@ -180,11 +180,32 @@ The Docker image serves the app and downloads the prebuilt index on startup,
 so it boots in seconds instead of crawling. Run the workflow once first (see
 above) so the `index-latest` release exists.
 
-The app needs about **750 MB of RAM** (PyTorch, the embedding model and the
-in-memory keyword index), so choose a host with at least 1 GB. The prebuilt
-index download is about 45 MB.
+The app uses about **350–400 MB of RAM** with the full index (ChromaDB, the
+in-memory keyword index and a quantized ONNX embedding model, no PyTorch), so
+it fits on free 512 MB instances. The prebuilt index download is about 45 MB.
 
-### Option A: Hugging Face Spaces (Docker)
+### Option A: Render (free)
+
+Render's **Free** instance (512 MB RAM, 0.1 CPU) runs the demo at no cost.
+
+1. Sign in at [render.com](https://render.com) and choose
+   **New → Web Service**, then connect this GitHub repository.
+2. Render detects the `Dockerfile`. Choose the **Free** instance type.
+3. Under **Environment**, add `GEMINI_API_KEY`.
+4. Click **Create Web Service**. Render sets `PORT` itself and redeploys on
+   every push to `main`. The demo is live at
+   `https://<service-name>.onrender.com`.
+
+Free instances spin down after 15 minutes without traffic. The next visit
+wakes the app (Render shows a loading page meanwhile), and because the disk
+is wiped on spin-down, it downloads the latest index again, so it picks up
+each weekly build by itself. With only 0.1 CPU, waking up is slow: in a local
+Docker test with the same limits, the app took about 2 minutes to start, and
+retrieval added 1–4 seconds to each answer. A workspace gets 750 free
+instance hours a month, enough for one service. On a paid instance, which
+never spins down, restart the service to load a new index.
+
+### Option B: Hugging Face Spaces (Docker)
 
 Docker Spaces run on free CPU Basic hardware (2 vCPU, 16 GB), but creating
 one requires a [Hugging Face PRO](https://huggingface.co/pricing) account.
@@ -217,16 +238,6 @@ Every later `git push space main` rebuilds the Space. Free hardware sleeps
 after a period without visitors. The next visit wakes it, and it downloads
 the latest index again because Space disks are wiped on restart.
 
-### Option B: Render
-
-1. Sign in at [render.com](https://render.com) and choose
-   **New → Web Service**, then connect this GitHub repository.
-2. Render detects the `Dockerfile`. Choose the **Standard** instance (2 GB).
-   The Free and Starter instances have 512 MB, which isn't enough.
-3. Under **Environment**, add `GEMINI_API_KEY`.
-4. Click **Create Web Service**. Render sets `PORT` itself and redeploys on
-   every push to `main`.
-
 ### Run the image locally
 
 ```bash
@@ -251,7 +262,7 @@ Nucleus-AI/
 │   ├── chunker.py            # Text splitting (handbook-aware atomic chunking)
 │   └── settings.py           # Crawl config (sitemap paths, delays, subject areas)
 ├── backend/
-│   ├── embedder.py      # Embedding generation (sentence-transformers)
+│   ├── embedder.py      # Embedding generation (ONNX Runtime)
 │   ├── vector_store.py  # ChromaDB vector database
 │   ├── retriever.py     # Hybrid search (vector + BM25)
 │   ├── llm.py           # LLM interface (Gemini / Ollama)

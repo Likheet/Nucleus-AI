@@ -70,7 +70,7 @@ class VectorStore:
             metadatas = [c["metadata"] for c in batch]
 
             # Generate embeddings
-            embeddings = embed_texts(texts, show_progress=False)
+            embeddings = embed_texts(texts)
 
             # Upsert into ChromaDB (handles duplicates)
             self.collection.upsert(
@@ -155,15 +155,6 @@ class VectorStore:
             "sample_urls": list(urls),
             "persist_dir": self.persist_dir,
         }
-
-    def clear(self):
-        """Delete all documents from the collection."""
-        self.client.delete_collection(COLLECTION_NAME)
-        self.collection = self.client.get_or_create_collection(
-            name=COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"},
-        )
-        print("Collection cleared.")
 
 
 def index_from_file(chunks_file=None):
