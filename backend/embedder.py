@@ -1,82 +1,100 @@
 """
 Embedding Pipeline — Generates vector embeddings for text chunks.
 
-Uses sentence-transformers with a lightweight model (all-MiniLM-L6-v2)
-that runs locally on CPU with zero API costs. The model is ~80MB and
-produces 384-dimensional embeddings.
+Runs all-MiniLM-L6-v2 locally on CPU with ONNX Runtime, with zero API costs
+and no PyTorch, so the server fits in 512 MB of RAM. It uses the model's
+8-bit quantized ONNX export (~23MB), which produces 384-dimensional
+embeddings very close to the full model's.
 """
 
 import os
 from functools import lru_cache
 
+import numpy as np
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Default model — small, fast, runs on CPU
-DEFAULT_MODEL = os.getenv(
+# Hugging Face repo of a sentence-transformers model that ships ONNX exports
+MODEL_REPO = os.getenv(
     "EMBEDDING_MODEL",
     "sentence-transformers/all-MiniLM-L6-v2"
 )
+# The 8-bit quantized export: about a third of the memory of the full
+# onnx/model.onnx, and it runs on any x86-64 or ARM CPU.
+MODEL_FILE = "onnx/model_quint8_avx2.onnx"
+# Recorded in the index manifest. When it changes, `python -m scraper.refresh`
+# re-embeds everything, so stored and query vectors come from the same model.
+DEFAULT_MODEL = f"{MODEL_REPO}/{MODEL_FILE}"
+# sentence-transformers' max_seq_length for this model
+MAX_TOKENS = 256
 
 
 @lru_cache(maxsize=1)
-def get_embedding_model(model_name=None):
+def get_embedding_model():
     """
-    Load the embedding model (cached singleton).
+    Load the tokenizer and ONNX model (cached singleton).
 
-    The first call downloads the model (~80MB) if not already cached.
-    Subsequent calls return the cached instance.
+    The first call downloads the model (~23MB) into the Hugging Face cache.
+    Subsequent calls return the cached instances.
     """
-    from sentence_transformers import SentenceTransformer
+    import onnxruntime
+    from huggingface_hub import hf_hub_download
+    from tokenizers import Tokenizer
 
-    model_name = model_name or DEFAULT_MODEL
-    print(f"Loading embedding model: {model_name}")
-    model = SentenceTransformer(model_name)
-    print(f"Model loaded! Embedding dimension: {model.get_sentence_embedding_dimension()}")
-    return model
+    print(f"Loading embedding model: {DEFAULT_MODEL}")
+    tokenizer = Tokenizer.from_file(hf_hub_download(MODEL_REPO, "tokenizer.json"))
+    tokenizer.enable_truncation(max_length=MAX_TOKENS)
+    tokenizer.enable_padding()
+    session = onnxruntime.InferenceSession(
+        hf_hub_download(MODEL_REPO, MODEL_FILE),
+        providers=["CPUExecutionProvider"],
+    )
+    return tokenizer, session
 
 
-def embed_texts(texts, model_name=None, batch_size=64, show_progress=True):
+def embed_texts(texts, batch_size=64):
     """
     Generate embeddings for a list of texts.
 
     Args:
         texts: List of strings to embed
-        model_name: Optional model override
         batch_size: Number of texts to embed at once
-        show_progress: Show progress bar
 
     Returns:
         numpy array of shape (len(texts), embedding_dim)
     """
-    model = get_embedding_model(model_name)
-    embeddings = model.encode(
-        texts,
-        batch_size=batch_size,
-        show_progress_bar=show_progress,
-        normalize_embeddings=True,  # L2 normalize for cosine similarity
-    )
-    return embeddings
+    tokenizer, session = get_embedding_model()
+    batches = []
+    for i in range(0, len(texts), batch_size):
+        encoded = tokenizer.encode_batch(texts[i : i + batch_size])
+        input_ids = np.array([e.ids for e in encoded], dtype=np.int64)
+        attention_mask = np.array([e.attention_mask for e in encoded], dtype=np.int64)
+        token_embeddings = session.run(None, {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "token_type_ids": np.zeros_like(input_ids),
+        })[0]
+
+        # Mean pooling over real (non-padding) tokens, as sentence-transformers does
+        mask = attention_mask[..., None].astype(np.float32)
+        pooled = (token_embeddings * mask).sum(axis=1) / mask.sum(axis=1)
+        # L2 normalize for cosine similarity
+        batches.append(pooled / np.linalg.norm(pooled, axis=1, keepdims=True))
+    return np.concatenate(batches)
 
 
-def embed_query(query, model_name=None):
+def embed_query(query):
     """
     Generate embedding for a single query string.
 
     Args:
         query: The search query
-        model_name: Optional model override
 
     Returns:
         numpy array of shape (embedding_dim,)
     """
-    model = get_embedding_model(model_name)
-    embedding = model.encode(
-        query,
-        normalize_embeddings=True,
-    )
-    return embedding
+    return embed_texts([query])[0]
 
 
 if __name__ == "__main__":
@@ -91,7 +109,6 @@ if __name__ == "__main__":
     print(f"Generated {len(embeddings)} embeddings of dimension {embeddings.shape[1]}")
 
     # Test similarity
-    import numpy as np
     query = embed_query("enrollment process")
     similarities = np.dot(embeddings, query)
     print(f"\nQuery: 'enrollment process'")
