@@ -161,8 +161,10 @@ To turn it on:
 1. Merge this workflow into `main` and push. Scheduled workflows only run
    from the default branch.
 2. Go to **Actions → Build index → Run workflow** to run it once by hand.
-   The first run does the full ~2-hour crawl and creates the
-   `index-latest` release. Runs after that are incremental.
+   If the `index-latest` release doesn't exist yet, this first run does the
+   full ~2-hour crawl and creates it (as a pre-release, so it never shows as
+   the repo's latest release). Otherwise it starts from that index and only
+   fetches what changed.
 3. Optional: to restart a Hugging Face Space after each build so it picks up
    the new index, add a repository **variable** `HF_SPACE_ID` (e.g.
    `your-name/nucleus-ai`) and a repository **secret** `HF_TOKEN` (a

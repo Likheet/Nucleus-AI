@@ -63,7 +63,7 @@ jobs:
             gh release edit index-latest --notes "$notes"
           else
             gh release create index-latest nucleus-index.tar.gz \
-              --title "Prebuilt index" --notes "$notes" --latest=false
+              --title "Prebuilt index" --notes "$notes" --prerelease
           fi
 
       # Optional: restart a Hugging Face Space so it downloads the new index.
