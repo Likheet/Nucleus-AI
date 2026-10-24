@@ -90,6 +90,10 @@ with a `<lastmod>` date. Nucleus AI indexes the pages under `/student`
 To index more, set `SITEMAP_PATHS` in `.env`, e.g.
 `SITEMAP_PATHS=/student,/study/how-to-apply/fees`.
 
+Known gap: the date list on the Key dates page (census dates, enrolment
+deadlines) is loaded by JavaScript, so it isn't in the index. Term start and
+end dates from the Academic calendar page are.
+
 ### Build or refresh it yourself
 
 ```bash
@@ -174,8 +178,9 @@ The Docker image serves the app and downloads the prebuilt index on startup,
 so it boots in seconds instead of crawling. Run the workflow once first (see
 above) so the `index-latest` release exists.
 
-The app needs about **650 MB of RAM** (PyTorch + the embedding model), so
-choose a host with at least 1 GB.
+The app needs about **750 MB of RAM** (PyTorch, the embedding model and the
+in-memory keyword index), so choose a host with at least 1 GB. The prebuilt
+index download is about 45 MB.
 
 ### Option A: Hugging Face Spaces (Docker)
 
