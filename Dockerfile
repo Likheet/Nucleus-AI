@@ -1,28 +1,33 @@
 FROM python:3.12-slim
 
-WORKDIR /app
+# Hugging Face Spaces runs containers as user 1000
+RUN useradd -m -u 1000 user
+USER user
+ENV HOME=/home/user \
+    PATH=/home/user/.local/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    PORT=7860
+WORKDIR $HOME/app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+# Copy requirements first (Docker caching). CPU-only torch keeps the image
+# a couple of GB smaller than the default CUDA build.
+COPY --chown=user requirements.txt .
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r requirements.txt
 
-# Copy requirements first (Docker caching)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Bake the embedding model into the image so startup doesn't download it
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
 
 # Copy application
-COPY . .
+COPY --chown=user . .
 
-# Create data directories
-RUN mkdir -p data/raw data/chunks data/chroma_db
-
-# Expose port
-EXPOSE 8000
+# The prebuilt index (INDEX_URL) is downloaded into ./data on startup.
+# Spaces expects port 7860; Render sets PORT itself.
+EXPOSE 7860
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8000/api/health').raise_for_status()" || exit 1
+    CMD python -c "import os, httpx; httpx.get('http://localhost:%s/api/health' % os.getenv('PORT', '7860')).raise_for_status()" || exit 1
 
 # Start the server
-CMD ["python", "-m", "backend.server"]
+CMD ["sh", "-c", "uvicorn backend.server:app --host 0.0.0.0 --port ${PORT}"]

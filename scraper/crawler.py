@@ -30,7 +30,7 @@ class UNSWSpider(scrapy.Spider):
         # robots.txt's Crawl-delay.
         "CONCURRENT_REQUESTS": 1,
         "CONCURRENT_REQUESTS_PER_DOMAIN": 1,
-        "RANDOMIZE_DOWNLOAD_DELAY": False,
+        "DOWNLOAD_DELAY_JITTER": 0,
         "ROBOTSTXT_OBEY": True,
         "USER_AGENT": crawler_settings.USER_AGENT,
         # Always fetch fresh copies: lastmod already tells us what changed.

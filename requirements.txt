@@ -1,5 +1,5 @@
 # Web Scraping
-scrapy>=2.11
+scrapy>=2.19
 protego>=0.3
 beautifulsoup4>=4.12
 lxml>=5.0
