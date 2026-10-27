@@ -12,7 +12,7 @@ from pathlib import Path
 import chromadb
 from dotenv import load_dotenv
 
-from backend.embedder import embed_texts
+from backend.embedder import DEFAULT_MODEL, MODELS, embed_texts
 
 load_dotenv()
 
@@ -23,18 +23,37 @@ CHROMA_PERSIST_DIR = os.getenv(
 COLLECTION_NAME = "unsw_pages"
 
 
+def indexed_model():
+    """The embedding model the local index was built with (from its manifest)."""
+    from scraper import settings as crawler_settings
+
+    manifest = Path(crawler_settings.MANIFEST_PATH)
+    if manifest.exists():
+        return json.loads(manifest.read_text()).get("embedding_model", DEFAULT_MODEL)
+    return DEFAULT_MODEL
+
+
 class VectorStore:
     """ChromaDB-backed vector store for UNSW document chunks."""
 
-    def __init__(self, persist_dir=None):
+    def __init__(self, persist_dir=None, model=None):
         """
         Initialize the vector store.
 
         Args:
             persist_dir: Directory for ChromaDB persistent storage.
                          Defaults to ./data/chroma_db
+            model: Embedding model for new chunks and for queries. Defaults
+                   to the one the stored vectors came from, so a search
+                   compares like with like.
         """
         self.persist_dir = persist_dir or CHROMA_PERSIST_DIR
+        self.model = model or indexed_model()
+        if self.model not in MODELS:
+            raise ValueError(
+                f"The index was built with {self.model!r}, which this version "
+                "can't run; rebuild it with `python -m scraper.refresh`"
+            )
         Path(self.persist_dir).mkdir(parents=True, exist_ok=True)
 
         self.client = chromadb.PersistentClient(path=self.persist_dir)
@@ -44,7 +63,7 @@ class VectorStore:
         )
         print(
             f"ChromaDB initialized. Collection '{COLLECTION_NAME}' "
-            f"has {self.collection.count()} documents."
+            f"has {self.collection.count()} documents (embeddings: {self.model})."
         )
 
     def index_chunks(self, chunks, batch_size=100):
@@ -70,7 +89,7 @@ class VectorStore:
             metadatas = [c["metadata"] for c in batch]
 
             # Generate embeddings
-            embeddings = embed_texts(texts)
+            embeddings = embed_texts(texts, self.model)
 
             # Upsert into ChromaDB (handles duplicates)
             self.collection.upsert(
@@ -109,7 +128,7 @@ class VectorStore:
         """
         from backend.embedder import embed_query
 
-        query_embedding = embed_query(query_text)
+        query_embedding = embed_query(query_text, self.model)
 
         search_kwargs = {
             "query_embeddings": [query_embedding.tolist()],

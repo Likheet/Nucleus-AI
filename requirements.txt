@@ -8,7 +8,7 @@ lxml>=5.0
 langchain-text-splitters>=0.2
 tiktoken>=0.7
 
-# Embeddings & Vector Store (all-MiniLM-L6-v2 on ONNX Runtime, no PyTorch)
+# Embeddings & Vector Store (arctic-embed-xs on ONNX Runtime, no PyTorch)
 onnxruntime>=1.17
 tokenizers>=0.15
 huggingface-hub>=0.20
