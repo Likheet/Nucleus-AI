@@ -129,6 +129,7 @@ class HybridRetriever:
                 if bm25_scores[idx] > 0:
                     chunk = self.chunks[idx]
                     bm25_results.append({
+                        "id": chunk["id"],
                         "text": chunk["text"],
                         "metadata": chunk["metadata"],
                         "bm25_score": bm25_scores[idx],
@@ -167,12 +168,13 @@ class HybridRetriever:
         RRF formula: score = weight * (1 / (k + rank))
         where k is a constant (typically 60) that dampens the effect of rank.
         """
-        # Build a map: text → fused_score and metadata
+        # Build a map: chunk ID → fused_score and metadata. (Not the text:
+        # chunks of one section all start with the same title and heading.)
         scores = {}
 
         # Process vector results
         for rank, result in enumerate(vector_results):
-            key = result["text"][:100]  # Use first 100 chars as key
+            key = result["id"]
             rrf_score = vector_weight * (1.0 / (k + rank + 1))
             if key not in scores:
                 scores[key] = {
@@ -186,7 +188,7 @@ class HybridRetriever:
 
         # Process BM25 results
         for rank, result in enumerate(bm25_results):
-            key = result["text"][:100]
+            key = result["id"]
             rrf_score = bm25_weight * (1.0 / (k + rank + 1))
             if key not in scores:
                 scores[key] = {

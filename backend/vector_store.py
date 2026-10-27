@@ -105,7 +105,7 @@ class VectorStore:
             where: Optional metadata filter dict (e.g. {"title": "Enrolment"})
 
         Returns:
-            List of dicts with keys: text, metadata, distance
+            List of dicts with keys: id, text, metadata, distance
         """
         from backend.embedder import embed_query
 
@@ -124,12 +124,14 @@ class VectorStore:
         # Format results
         formatted = []
         if results and results["documents"]:
-            for doc, meta, dist in zip(
+            for chunk_id, doc, meta, dist in zip(
+                results["ids"][0],
                 results["documents"][0],
                 results["metadatas"][0],
                 results["distances"][0],
             ):
                 formatted.append({
+                    "id": chunk_id,
                     "text": doc,
                     "metadata": meta,
                     "distance": dist,
