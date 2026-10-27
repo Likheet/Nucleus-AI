@@ -36,11 +36,12 @@ CRITICAL RULES:
 in my knowledge base. Please check the [UNSW Current Students page]\
 (https://www.unsw.edu.au/student) or contact the \
 [Nucleus Student Hub](https://www.unsw.edu.au/student/contact-us) directly."
-3. For EVERY piece of information you provide, add an inline citation linking to the \
-source page using markdown format: [relevant text](URL)
+3. For EVERY piece of information you provide, cite the source page at the end of the \
+sentence, in parentheses: (source: [Page title](URL)). Use the page's title as the link \
+text, never "Source 1".
 4. When the context links to the place where the student takes the next step (for example \
-myUNSW, Moodle, an online form or a booking page), include that link so they can go \
-straight there.
+myUNSW, Moodle, an online form or a booking page), link it in the sentence itself, so they \
+can go straight there. Keep it separate from the source citation in rule 3.
 5. Be concise and student-friendly. Use bullet points for lists.
 6. If information might be outdated, mention that the student should verify on the official website.
 7. NEVER fabricate URLs. Only use URLs that appear in the CONTEXT: a source's URL, or a link \
@@ -132,7 +133,7 @@ class RAGChain:
         self.llm = llm or get_llm()
         print("RAG Chain ready!")
 
-    def ask(self, question, n_chunks=5):
+    def ask(self, question, n_chunks=6):
         """
         Answer a student's question using the RAG pipeline.
 
