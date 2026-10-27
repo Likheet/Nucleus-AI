@@ -44,20 +44,37 @@ class BaseLLM(ABC):
 class GeminiLLM(BaseLLM):
     """Google Gemini Flash API — free tier."""
 
-    def __init__(self, api_key=None, model=None):
+    # Give up on a request after this long, so the main model plus the
+    # fallback stay within ~30 s. Otherwise Google's client keeps retrying an
+    # overloaded model (503s) for minutes while the student waits.
+    TIMEOUT_MS = 15_000
+
+    def __init__(self, api_key=None, model=None, fallback_model=None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY", "")
         self.model_name = model or os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+        # Tried when the main model fails: too slow, overloaded, out of
+        # free-tier quota, or an empty reply. Free-tier quotas are per model.
+        self.fallback_model = fallback_model or os.getenv(
+            "GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite"
+        )
         self._client = None
 
     def _get_client(self):
         """Lazy-initialize the Gemini client."""
         if self._client is None:
             from google import genai
-            self._client = genai.Client(api_key=self.api_key)
+            from google.genai import types
+            self._client = genai.Client(
+                api_key=self.api_key,
+                http_options=types.HttpOptions(
+                    timeout=self.TIMEOUT_MS,
+                    retry_options=types.HttpRetryOptions(attempts=1),
+                ),
+            )
         return self._client
 
     def generate(self, prompt, system_prompt=None, temperature=0.3, max_tokens=1500):
-        """Generate using Gemini API."""
+        """Generate using Gemini API, falling back to a second model if needed."""
         from google.genai import types
 
         client = self._get_client()
@@ -69,13 +86,25 @@ class GeminiLLM(BaseLLM):
         if system_prompt:
             config.system_instruction = system_prompt
 
-        response = client.models.generate_content(
-            model=self.model_name,
-            contents=prompt,
-            config=config,
-        )
+        models = [self.model_name]
+        if self.fallback_model and self.fallback_model != self.model_name:
+            models.append(self.fallback_model)
 
-        return response.text
+        for model in models:
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=config,
+                )
+                if response.text:
+                    return response.text
+                error = "empty reply"
+            except Exception as e:
+                error = e
+            print(f"⚠️  {model} failed: {str(error)[:150]}")
+
+        raise RuntimeError(f"Gemini failed: {str(error)[:150]}")
 
     def is_available(self):
         """Check if Gemini API key is configured."""

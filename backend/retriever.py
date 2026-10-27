@@ -17,6 +17,15 @@ from rank_bm25 import BM25Okapi
 
 from backend.vector_store import VectorStore
 
+# Results may include this many chunks from one page: enough depth for
+# details (fee amounts, steps) without one long page filling every slot.
+MAX_CHUNKS_PER_PAGE = 2
+
+# Old fee tables, past key dates and news posts are rarely the best answer
+# to "how do I" questions, so their scores are scaled down.
+DOWNRANKED_PATHS = ("/archive/", "/key-dates/past", "/news/")
+DOWNRANK_FACTOR = 0.5
+
 
 class HybridRetriever:
     """
@@ -133,12 +142,17 @@ class HybridRetriever:
             bm25_weight=bm25_weight,
         )
 
-        # At most one chunk per page, so one long page can't fill every slot
-        results, seen_urls = [], set()
+        for result in fused:
+            if any(p in result["metadata"].get("url", "") for p in DOWNRANKED_PATHS):
+                result["score"] *= DOWNRANK_FACTOR
+        fused.sort(key=lambda r: r["score"], reverse=True)
+
+        # Cap chunks per page, so one long page can't fill every slot
+        results, per_page = [], {}
         for result in fused:
             url = result["metadata"].get("url")
-            if url not in seen_urls:
-                seen_urls.add(url)
+            if per_page.get(url, 0) < MAX_CHUNKS_PER_PAGE:
+                per_page[url] = per_page.get(url, 0) + 1
                 results.append(result)
                 if len(results) == n_results:
                     break

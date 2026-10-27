@@ -9,6 +9,7 @@ Endpoints:
 """
 
 import os
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -74,25 +75,27 @@ rag_chain = None
 init_error = "Starting up"
 LLM_RETRY_SECONDS = 30
 _last_llm_attempt = 0.0
+_llm_lock = threading.Lock()  # chat runs in worker threads
 
 
 def get_rag_chain():
     """Return the RAG chain, connecting to the LLM if that hasn't worked yet."""
     global rag_chain, init_error, _last_llm_attempt
-    if (
-        rag_chain is None
-        and retriever is not None
-        and time.time() - _last_llm_attempt >= LLM_RETRY_SECONDS
-    ):
-        _last_llm_attempt = time.time()
-        try:
-            from backend.chain import RAGChain
-            rag_chain = RAGChain(retriever=retriever)
-            init_error = ""
-            print("✅ RAG chain initialized successfully!")
-        except Exception as e:
-            init_error = str(e).splitlines()[0]
-            print(f"⚠️  Could not connect to the LLM: {e}")
+    with _llm_lock:
+        if (
+            rag_chain is None
+            and retriever is not None
+            and time.time() - _last_llm_attempt >= LLM_RETRY_SECONDS
+        ):
+            _last_llm_attempt = time.time()
+            try:
+                from backend.chain import RAGChain
+                rag_chain = RAGChain(retriever=retriever)
+                init_error = ""
+                print("✅ RAG chain initialized successfully!")
+            except Exception as e:
+                init_error = str(e).splitlines()[0]
+                print(f"⚠️  Could not connect to the LLM: {e}")
     return rag_chain
 
 
@@ -144,8 +147,11 @@ app.add_middleware(
 # --- API Endpoints ---
 
 
+# A plain def, so FastAPI runs it in a worker thread: a slow LLM call then
+# doesn't block the event loop (and every other request, health checks
+# included) while it waits.
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+def chat(request: ChatRequest):
     """
     Answer a student's question using the RAG pipeline.
 

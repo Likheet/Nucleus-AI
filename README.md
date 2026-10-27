@@ -323,6 +323,7 @@ June 2026).
 |:---|:---|:---|
 | `GEMINI_API_KEY` | | Gemini API key (required for answers) |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini model |
+| `GEMINI_FALLBACK_MODEL` | `gemini-3.1-flash-lite` | Used when the main model takes over 15 s, is overloaded or is out of free quota (free quotas are per model) |
 | `INDEX_URL` | this repo's `index-latest` asset | Prebuilt index to download when none exists locally (empty = never) |
 | `SITEMAP_PATHS` | `/student` | Sitemap path prefixes to index |
 | `CRAWL_DELAY` | `1.5` | Minimum seconds between requests (robots.txt's Crawl-delay wins if longer) |
