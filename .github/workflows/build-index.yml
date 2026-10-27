@@ -40,7 +40,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: hf-${{ runner.os }}-all-MiniLM-L6-v2-onnx
+          # The embedding model is set in backend/embedder.py
+          key: hf-${{ runner.os }}-${{ hashFiles('backend/embedder.py') }}
 
       - name: Restore the previous index
         run: python -m backend.index_bundle download || echo "No previous index; doing a full build"

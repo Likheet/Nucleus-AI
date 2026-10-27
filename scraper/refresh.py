@@ -223,7 +223,7 @@ def refresh(limit=None, rechunk=False):
         # Start from an empty store. Chroma's delete_collection leaves the old
         # vectors on disk, where they'd be packed into every index archive.
         shutil.rmtree(CHROMA_PERSIST_DIR, ignore_errors=True)
-    store = VectorStore()
+    store = VectorStore(model=DEFAULT_MODEL)
     stored_ids = store.ids()
     stale = stored_ids - {c["id"] for c in all_chunks}
     if stale:

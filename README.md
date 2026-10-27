@@ -123,6 +123,13 @@ so answers can link to services. When page extraction changes
 (`EXTRACTOR_VERSION` in `scraper/crawler.py`), the next run re-fetches every
 page once, which is another ~2-hour run.
 
+Embeddings come from a small model that runs locally (`DEFAULT_MODEL` in
+`backend/embedder.py`, currently Snowflake's arctic-embed-xs). When it
+changes, the next run re-embeds every chunk without re-fetching anything.
+The server always embeds questions with the model that built its index
+(`embedding_model` in `data/manifest.json`), so a new version of the app
+keeps working with an older index until the next build.
+
 | Option | What it does |
 |:---|:---|
 | `--limit N` | Fetch at most N pages this run (later runs fetch the rest) |
