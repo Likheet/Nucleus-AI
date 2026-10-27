@@ -151,6 +151,18 @@ def chunk_handbook_page(page_data):
     return chunks
 
 
+def with_context(title, heading, text):
+    """
+    Prefix a chunk with its page title and section heading. Only a section's
+    first chunk starts with its heading, and none mention the page, so without
+    this a chunk about special consideration may never say "special
+    consideration", and search can't match it.
+    """
+    if heading and not text.startswith(heading):
+        text = f"{heading}\n\n{text}"
+    return f"{title}\n{text}" if title else text
+
+
 def chunk_page(page_data):
     """
     Split a single page's content into chunks, preserving metadata.
@@ -201,7 +213,7 @@ def chunk_page(page_data):
                 chunk_id = generate_chunk_id(url, len(chunks))
                 chunks.append({
                     "id": chunk_id,
-                    "text": chunk_text.strip(),
+                    "text": with_context(title, heading, chunk_text.strip()),
                     "metadata": {
                         "url": url,
                         "title": title,
@@ -223,7 +235,7 @@ def chunk_page(page_data):
                 chunk_id = generate_chunk_id(url, str(i))
                 chunks.append({
                     "id": chunk_id,
-                    "text": chunk_text.strip(),
+                    "text": with_context(title, "", chunk_text.strip()),
                     "metadata": {
                         "url": url,
                         "title": title,

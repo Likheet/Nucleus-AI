@@ -47,8 +47,12 @@ async function checkHealth() {
         const response = await fetch(ENDPOINTS.health, { signal: AbortSignal.timeout(5000) });
         if (response.ok) {
             const data = await response.json();
-            statusDot.classList.remove('offline');
-            statusText.textContent = `Online · ${data.knowledge_base_size.toLocaleString()} docs`;
+            const ready = data.status === 'ok';
+            statusDot.classList.toggle('offline', !ready);
+            statusText.textContent = ready
+                ? `Online · ${data.knowledge_base_size.toLocaleString()} docs`
+                : 'Assistant unavailable';
+            statusText.title = data.detail || '';
             return true;
         }
     } catch (e) {
@@ -149,6 +153,7 @@ async function sendMessage() {
 
         // Add assistant response
         appendMessage('assistant', data.answer, data.sources, data.response_time_ms);
+        checkHealth();
 
     } catch (error) {
         typingEl.remove();
@@ -158,10 +163,10 @@ async function sendMessage() {
             appendMessage('assistant', 'Sorry, the request timed out. Please try again with a simpler question.');
         } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
             showError('Cannot connect to the server. Is it running?');
-            appendMessage('assistant', 'I can\'t connect to the server right now. Make sure the backend is running on `localhost:8000`.');
+            appendMessage('assistant', 'I can\'t reach the server right now. Please try again in a moment.');
         } else {
             showError(error.message);
-            appendMessage('assistant', `Sorry, something went wrong: ${error.message}. Please try again.`);
+            appendMessage('assistant', `Sorry, something went wrong: ${error.message}`);
         }
     } finally {
         isLoading = false;
@@ -267,10 +272,12 @@ function renderMarkdown(text) {
     // Inline code
     html = html.replace(/`(.+?)`/g, '<code>$1</code>');
 
-    // Links [text](url)
-    html = html.replace(
-        /\[([^\]]+)\]\(([^)]+)\)/g,
-        '<a href="$2" target="_blank" rel="noopener">$1</a>'
+    // Links [text](url): web links only, with quotes escaped so a URL
+    // can't break out of the href attribute
+    html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (match, label, url) =>
+        /^https?:\/\//i.test(url)
+            ? `<a href="${url.replace(/"/g, '&quot;')}" target="_blank" rel="noopener">${label}</a>`
+            : label
     );
 
     // Unordered lists

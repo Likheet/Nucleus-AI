@@ -9,6 +9,7 @@ preserved for citation in the RAG pipeline. It does not follow links.
 
 import re
 from datetime import datetime, timezone
+from urllib.parse import urljoin, urlparse
 
 import scrapy
 from bs4 import BeautifulSoup
@@ -16,8 +17,21 @@ from bs4 import BeautifulSoup
 from scraper import settings as crawler_settings
 
 
+# Bump when extraction changes enough that every page should be re-fetched:
+# scraper/refresh.py re-fetches pages extracted by an older version.
+# 2: links are kept as markdown [text](url)
+EXTRACTOR_VERSION = 2
+
 # Elements whose text becomes section content
 TEXT_BLOCKS = ("p", "li", "td", "dd", "dt")
+
+# Links that wrap these are tiles/cards rather than links inside a sentence
+CARD_TAGS = ("p", "div", "li", "ul", "ol", "table", "section",
+             "h1", "h2", "h3", "h4", "h5", "h6")
+
+# Links to these sites stay plain text (social media icons on every page)
+SKIPPED_LINK_HOSTS = ("facebook.com", "instagram.com", "linkedin.com",
+                      "tiktok.com", "youtube.com", "twitter.com", "x.com")
 
 
 class UNSWSpider(scrapy.Spider):
@@ -105,6 +119,8 @@ class UNSWSpider(scrapy.Spider):
             for el in soup.select(selector):
                 el.decompose()
 
+        self._keep_links(soup, response.url)
+
         # Title
         title = ""
         title_tag = soup.find("title")
@@ -153,6 +169,43 @@ class UNSWSpider(scrapy.Spider):
             "sections": sections,
             "last_crawled": datetime.now(timezone.utc).isoformat(),
         }
+
+    def _keep_links(self, soup, page_url):
+        """
+        Write links into the text as markdown [text](url), so answers can send
+        students straight to myUNSW, Moodle, forms and the pages UNSW links to.
+        """
+        page = page_url.split("#")[0]
+        for a in soup.find_all("a", href=True):
+            url = urljoin(page_url, a["href"].strip())
+            parsed = urlparse(url)
+            host = parsed.netloc.lower()
+            if (
+                parsed.scheme not in ("http", "https")
+                or url.split("#")[0] == page  # same-page anchor
+                or any(host == h or host.endswith("." + h) for h in SKIPPED_LINK_HOSTS)
+                or a.find_parent(["h1", "h2", "h3", "h4", "h5", "h6"])
+            ):
+                continue
+            # AEM's internal paths (/content/unsw-sites/au/en/student.html)
+            # have public equivalents (/student)
+            aem = re.fullmatch(r"/content/unsw-sites/au/en(/.+)\.html", parsed.path)
+            if host == "www.unsw.edu.au" and aem:
+                url = f"https://www.unsw.edu.au{aem.group(1)}"
+
+            if a.find(CARD_TAGS):
+                # A tile: keep its text, and add a link line named after its
+                # heading or first paragraph
+                label_el = a.find(["h1", "h2", "h3", "h4", "h5", "h6"]) or a.find("p") or a
+                label = label_el.get_text(" ", strip=True)[:80]
+                if label:
+                    link = soup.new_tag("p")
+                    link.string = f"[{label}]({url})"
+                    a.append(link)
+            else:
+                text = a.get_text(" ", strip=True)
+                if text:
+                    a.replace_with(f"[{text}]({url})")
 
     def _extract_sections(self, element):
         """Extract content organized by section headings."""

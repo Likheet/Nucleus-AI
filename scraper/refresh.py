@@ -103,6 +103,7 @@ def refresh(limit=None, rechunk=False):
     from backend.embedder import DEFAULT_MODEL
     from backend.vector_store import CHROMA_PERSIST_DIR, VectorStore
     from scraper.chunker import chunk_page
+    from scraper.crawler import EXTRACTOR_VERSION
     from scraper.sitemap import crawl_delay, fetch_sitemap, select_pages
 
     started = time.time()
@@ -128,8 +129,15 @@ def refresh(limit=None, rechunk=False):
     wanted = select_pages(fetch_sitemap())
     to_fetch = [
         url for url, lastmod in wanted.items()
-        if url not in known or known[url]["lastmod"] != lastmod
+        if url not in known
+        or known[url]["lastmod"] != lastmod
+        # Extracted by an older version of the crawler
+        or known[url].get("extractor") != EXTRACTOR_VERSION
     ]
+    outdated = sum(
+        1 for url in to_fetch
+        if url in known and known[url]["lastmod"] == wanted[url]
+    )
     removed = [
         url for url, entry in known.items()
         if entry["source"] == "sitemap" and url not in wanted
@@ -139,6 +147,8 @@ def refresh(limit=None, rechunk=False):
         f"{len(wanted) - len(to_fetch)} unchanged, {len(to_fetch)} new or changed, "
         f"{len(removed)} removed"
     )
+    if outdated:
+        print(f"   ({outdated} of them because the extractor changed since they were fetched)")
     if limit is not None and len(to_fetch) > limit:
         to_fetch = to_fetch[:limit]
         print(f"   Fetching only the first {limit} this run (--limit)")
@@ -174,7 +184,13 @@ def refresh(limit=None, rechunk=False):
         }
 
     for url, page in fetched.items():
+        outdated_page = known.get(url, {}).get("extractor") != EXTRACTOR_VERSION
         record(url, page, wanted[url], "sitemap")
+        known[url]["extractor"] = EXTRACTOR_VERSION
+        if outdated_page:
+            # Re-chunk even if the text is the same: extractor changes can
+            # come with chunk format changes
+            changed.add(url)
         pages[url] = page
 
     # Handbook pages (optional, from a separate handbook crawl)
